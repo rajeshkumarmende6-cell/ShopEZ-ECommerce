@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/* Enable class-based dark mode in Tailwind v4 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Custom styles for animations or overrides if needed */
+:root {
+  /* Slate theme overrides for Light Mode (Blue & White combination) */
+  --color-slate-950: #f0f9ff;
+  --color-slate-900: #ffffff;
+  --color-slate-850: #e0f2fe;
+  --color-slate-800: #f1f5f9;
+  --color-slate-750: #bae6fd;
+  --color-slate-700: #e2e8f0;
+  --color-slate-650: #0284c7;
+  --color-slate-600: #2563eb;
+  --color-slate-550: #1d4ed8;
+  --color-slate-500: #475569;
+  --color-slate-450: #334155;
+  --color-slate-400: #475569;
+  --color-slate-350: #1e293b;
+  --color-slate-300: #1e293b;
+  --color-slate-250: #1e293b;
+  --color-slate-200: #0f172a;
+  --color-slate-100: #0f172a;
+
+  /* Accent overrides (Violet -> Ocean Blue) */
+  --color-violet-500: #0284c7;
+  --color-violet-600: #2563eb;
+  --color-violet-700: #1d4ed8;
+  --color-indigo-500: #3b82f6;
+  --color-indigo-600: #0284c7;
+
+  /* Global Body Styles */
+  html, body {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    scroll-behavior: smooth;
+    background-color: var(--color-slate-950) !important;
+    color: var(--color-slate-100) !important;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+}
+
+.dark {
+  /* Slate theme overrides for Dark Mode (Minimalist Black & White) */
+  --color-slate-955: #000000;
+  --color-slate-950: #000000;
+  --color-slate-900: #0a0a0a;
+  --color-slate-850: #121212;
+  --color-slate-800: #121212;
+  --color-slate-750: #262626;
+  --color-slate-700: #262626;
+  --color-slate-650: #262626;
+  --color-slate-600: #262626;
+  --color-slate-500: #a3a3a3;
+  --color-slate-450: #737373;
+  --color-slate-400: #a3a3a3;
+  --color-slate-350: #e5e5e5;
+  --color-slate-300: #e5e5e5;
+  --color-slate-250: #ffffff;
+  --color-slate-200: #ffffff;
+  --color-slate-100: #ffffff;
+
+  /* Accent overrides for black & white mode */
+  --color-violet-400: #ffffff;
+  --color-violet-500: #ffffff;
+  --color-violet-600: #ffffff;
+  --color-violet-700: #e5e5e5;
+  --color-indigo-400: #a3a3a3;
+  --color-indigo-500: #ffffff;
+  --color-indigo-600: #ffffff;
+
+  html, body {
+    background-color: var(--color-slate-950) !important;
+    color: var(--color-slate-100) !important;
+  }
+
+  /* Force action buttons and active indicators to be white with black text */
+  .bg-violet-600, 
+  .bg-gradient-to-r.from-violet-600.to-indigo-600, 
+  .bg-gradient-to-r.from-violet-600.to-indigo-650,
+  button[type="submit"]:not(.search-submit-btn) {
+    background: #ffffff !important;
+    background-image: none !important;
+    color: #000000 !important;
+  }
+
+  /* Force correct icons color on active white items */
+  .bg-violet-600 svg,
+  .bg-gradient-to-r.from-violet-600.to-indigo-600 svg,
+  button[type="submit"]:not(.search-submit-btn) svg {
+    color: #000000 !important;
+  }
+}
