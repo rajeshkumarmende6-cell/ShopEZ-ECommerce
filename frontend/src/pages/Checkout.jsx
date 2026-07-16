@@ -37,6 +37,10 @@ function Checkout() {
       const { data } = await API.get('/addresses');
       if (data?.success) {
         setAddresses(data.addresses);
+        // Auto-open address form if no address is configured
+        if (data.addresses.length === 0) {
+          setShowAddressForm(true);
+        }
         // Pre-select default address
         const defaultAddr = data.addresses.find((a) => a.isDefault);
         if (defaultAddr) {
@@ -79,6 +83,15 @@ function Checkout() {
   };
 
   const handlePlaceOrder = async () => {
+    if (addresses.length === 0) {
+      if (showAddressForm) {
+        toast.error('Please save your shipping address details first');
+      } else {
+        toast.error('Please add a shipping address to place your order');
+      }
+      return;
+    }
+
     if (!selectedAddressId) {
       toast.error('Please select a shipping address');
       return;
@@ -90,7 +103,13 @@ function Checkout() {
       return;
     }
 
-    const orderItems = cart.items.map((item) => ({
+    const validItems = cart.items.filter((item) => item.product && item.product._id);
+    if (validItems.length === 0) {
+      toast.error('Your cart does not contain any valid products');
+      return;
+    }
+
+    const orderItems = validItems.map((item) => ({
       product: item.product._id,
       name: item.product.name,
       price: item.product.discountPrice > 0 ? item.product.discountPrice : item.product.price,
@@ -137,9 +156,9 @@ function Checkout() {
               navigate(`/order-success?orderId=${orderId}`);
             }
           } else {
-            // Real Stripe integration trigger (fallback mock success for sandbox simplicity)
+            // Real Stripe integration trigger (extract mock/real intent ID by splitting secret token)
             const confirmRes = await API.post(`/orders/${orderId}/confirm`, {
-              paymentIntentId: clientSecret,
+              paymentIntentId: clientSecret.split('_secret_')[0],
             });
             if (confirmRes.data?.success) {
               clearCart();
@@ -374,7 +393,7 @@ function Checkout() {
           <div className="pt-2">
             <button
               onClick={handlePlaceOrder}
-              disabled={isSubmitting || addresses.length === 0}
+              disabled={isSubmitting}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-650 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold py-3 px-6 rounded-xl transition duration-200 shadow-lg shadow-violet-950/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
             >
               {isSubmitting ? (
