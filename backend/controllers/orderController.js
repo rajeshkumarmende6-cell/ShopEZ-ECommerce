@@ -4,6 +4,7 @@ const Cart = require('../models/Cart');
 const User = require('../models/User');
 const ErrorHandler = require('../utils/errorHandler');
 const { createPaymentIntent, confirmPaymentIntent } = require('../services/stripeService');
+const { createRazorpayOrder, verifyPaymentSignature } = require('../services/razorpayService');
 const sendEmail = require('../services/emailService');
 const { generateOrderEmailHtml } = require('../utils/emailTemplates');
 
@@ -40,14 +41,18 @@ exports.createOrder = async (req, res, next) => {
     const taxPrice = Number((itemsPrice * 0.08).toFixed(2)); // 8% tax rate
     const totalPrice = Number((itemsPrice + shippingPrice + taxPrice).toFixed(2));
 
-    // 1. Generate Stripe Payment Intent if method is Stripe
+    // 1. Generate Payment Intent / Razorpay Order
     let paymentIntentId = 'COD_PAYMENT';
     let clientSecret = '';
+    let razorpayOrderData = null;
 
     if (paymentMethod === 'Stripe') {
       const paymentIntent = await createPaymentIntent(totalPrice);
       paymentIntentId = paymentIntent.id;
       clientSecret = paymentIntent.clientSecret;
+    } else if (paymentMethod === 'Razorpay') {
+      razorpayOrderData = await createRazorpayOrder(totalPrice, req.user._id);
+      paymentIntentId = razorpayOrderData.id;
     }
 
     // 2. Save Order in pending state
@@ -57,7 +62,7 @@ exports.createOrder = async (req, res, next) => {
       shippingAddress,
       paymentInfo: {
         id: paymentIntentId,
-        status: paymentMethod === 'COD' ? 'pending' : 'pending',
+        status: 'pending',
         method: paymentMethod
       },
       itemsPrice,
@@ -72,6 +77,7 @@ exports.createOrder = async (req, res, next) => {
       success: true,
       orderId: order._id,
       clientSecret,
+      razorpayOrder: razorpayOrderData,
       totalPrice
     });
   } catch (error) {
@@ -84,14 +90,14 @@ exports.createOrder = async (req, res, next) => {
 // @access  Private
 exports.confirmOrderPayment = async (req, res, next) => {
   try {
-    const { paymentIntentId } = req.body;
+    const { paymentIntentId, razorpayPaymentId, razorpayOrderId, razorpaySignature } = req.body;
     const order = await Order.findOne({ _id: req.params.id, user: req.user._id });
 
     if (!order) {
       return next(new ErrorHandler('Order not found', 404));
     }
 
-    // Validate payment status via Stripe
+    // Validate payment status based on method
     if (order.paymentInfo.method === 'Stripe') {
       if (!paymentIntentId) {
         return next(new ErrorHandler('Payment Intent ID is required', 400));
@@ -105,6 +111,25 @@ exports.confirmOrderPayment = async (req, res, next) => {
       }
 
       order.paymentInfo.id = paymentIntentId;
+      order.paymentInfo.status = 'succeeded';
+    } else if (order.paymentInfo.method === 'Razorpay') {
+      if (!razorpayPaymentId) {
+        return next(new ErrorHandler('Razorpay Payment ID is required', 400));
+      }
+
+      const isVerified = await verifyPaymentSignature({
+        razorpayPaymentId,
+        razorpayOrderId: razorpayOrderId || order.paymentInfo.id,
+        razorpaySignature
+      });
+
+      if (!isVerified) {
+        order.paymentInfo.status = 'failed';
+        await order.save();
+        return next(new ErrorHandler('Razorpay payment verification failed', 400));
+      }
+
+      order.paymentInfo.id = razorpayPaymentId;
       order.paymentInfo.status = 'succeeded';
     } else {
       // COD payment confirmation

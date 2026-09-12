@@ -92,13 +92,18 @@ function Orders() {
                       </div>
                       <div>
                         <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Payment</span>
-                        <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border mt-0.5 ${
-                          order.paymentInfo.status === 'succeeded'
-                            ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                            : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                        }`}>
-                          {order.paymentInfo.status === 'succeeded' ? 'Paid' : 'Pending'}
-                        </span>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            order.paymentInfo.status === 'succeeded'
+                              ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                          }`}>
+                            {order.paymentInfo.status === 'succeeded' ? 'Paid' : 'Pending'}
+                          </span>
+                          <span className="text-[10px] font-medium text-slate-400 bg-slate-850 px-2 py-0.5 rounded border border-slate-750">
+                            {order.paymentInfo.method === 'Razorpay' ? '⚡ UPI / Razorpay' : order.paymentInfo.method}
+                          </span>
+                        </div>
                       </div>
                     </div>
 

@@ -4,8 +4,9 @@ import MainLayout from '../layouts/MainLayout';
 import useCart from '../hooks/useCart';
 import API from '../services/api';
 import { useForm } from 'react-hook-form';
-import { MapPin, CreditCard, ShieldCheck, ArrowRight, Loader2, Plus, X, FileText } from 'lucide-react';
+import { MapPin, CreditCard, ShieldCheck, ArrowRight, Loader2, Plus, X, FileText, Smartphone, QrCode, Sparkles } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import RazorpayModal from '../components/RazorpayModal';
 
 function Checkout() {
   const { cart, getCartTotal, clearCart } = useCart();
@@ -17,9 +18,13 @@ function Checkout() {
   const [selectedAddressId, setSelectedAddressId] = useState(null);
 
   // Checkout workflow state
-  const [paymentMethod, setPaymentMethod] = useState('Stripe');
+  const [paymentMethod, setPaymentMethod] = useState('Razorpay');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderNotes, setOrderNotes] = useState('');
+
+  // Razorpay state
+  const [razorpayModalOpen, setRazorpayModalOpen] = useState(false);
+  const [razorpayOrderData, setRazorpayOrderData] = useState(null);
 
   // Inline address form toggle
   const [showAddressForm, setShowAddressForm] = useState(false);
@@ -137,10 +142,64 @@ function Checkout() {
       });
 
       if (data?.success) {
-        const { orderId, clientSecret } = data;
+        const { orderId, clientSecret, razorpayOrder } = data;
 
-        // 2. Perform Payment Intent Confirmation
-        if (paymentMethod === 'Stripe') {
+        // 2. Perform Payment Confirmation based on Method
+        if (paymentMethod === 'Razorpay') {
+          // Check if real Razorpay test key is provided (starts with rzp_test_ and not mock)
+          const isRealKey =
+            razorpayOrder &&
+            !razorpayOrder.isMock &&
+            razorpayOrder.keyId?.startsWith('rzp_test_');
+
+          if (isRealKey) {
+            const scriptLoaded = await loadRazorpayScript();
+            if (scriptLoaded && window.Razorpay) {
+              const options = {
+                key: razorpayOrder.keyId,
+                amount: razorpayOrder.amount,
+                currency: razorpayOrder.currency || 'INR',
+                name: 'ShopEZ Store',
+                description: `Order #${orderId} UPI Payment (Test Mode)`,
+                image: 'https://cdn-icons-png.flaticon.com/512/1170/1170678.png',
+                order_id: razorpayOrder.id,
+                prefill: {
+                  name: shippingAddressObj.fullName,
+                  contact: shippingAddressObj.phoneNumber
+                },
+                theme: {
+                  color: '#7c3aed'
+                },
+                handler: async function (response) {
+                  await handleConfirmRazorpayPayment(orderId, response);
+                },
+                modal: {
+                  ondismiss: function () {
+                    setIsSubmitting(false);
+                    toast('Payment window closed. You can retry anytime.', { icon: 'ℹ️' });
+                  }
+                }
+              };
+              const rzp = new window.Razorpay(options);
+              rzp.open();
+              return;
+            }
+          }
+
+          // Open embedded Razorpay UPI test interface (Sandbox - zero real money transfer)
+          setRazorpayOrderData({
+            orderId,
+            amountInUSD: total,
+            amountInINR: razorpayOrder?.inrAmount || Number((total * 83).toFixed(2)),
+            isMock: razorpayOrder?.isMock ?? true,
+            customerDetails: {
+              name: shippingAddressObj.fullName,
+              phoneNumber: shippingAddressObj.phoneNumber
+            }
+          });
+          setRazorpayModalOpen(true);
+          setIsSubmitting(false);
+        } else if (paymentMethod === 'Stripe') {
           // If we receive a mock secret, simulate card loading and then finalize
           if (clientSecret.startsWith('pi_mock_')) {
             await new Promise((resolve) => setTimeout(resolve, 1500)); // Simulate gateway authorization
@@ -177,6 +236,43 @@ function Checkout() {
       }
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to place order');
+    } finally {
+      if (paymentMethod !== 'Razorpay') {
+        setIsSubmitting(false);
+      }
+    }
+  };
+
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        return resolve(true);
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleConfirmRazorpayPayment = async (orderId, paymentResponse) => {
+    try {
+      setIsSubmitting(true);
+      const confirmRes = await API.post(`/orders/${orderId}/confirm`, {
+        razorpayPaymentId: paymentResponse.razorpay_payment_id,
+        razorpayOrderId: paymentResponse.razorpay_order_id,
+        razorpaySignature: paymentResponse.razorpay_signature
+      });
+
+      if (confirmRes.data?.success) {
+        setRazorpayModalOpen(false);
+        clearCart();
+        toast.success('UPI Payment completed successfully (Test Mode)!');
+        navigate(`/order-success?orderId=${orderId}`);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to verify Razorpay payment');
     } finally {
       setIsSubmitting(false);
     }
@@ -294,37 +390,106 @@ function Checkout() {
               <span>2. Payment Option</span>
             </h2>
 
-            <div className="flex gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Option 1: Razorpay UPI */}
               <label
-                onClick={() => setPaymentMethod('Stripe')}
-                className={`flex-1 p-4 border rounded-xl cursor-pointer flex items-center gap-3 transition ${
-                  paymentMethod === 'Stripe'
-                    ? 'bg-violet-950/10 border-violet-500/50 text-slate-200'
+                onClick={() => setPaymentMethod('Razorpay')}
+                className={`p-4 border rounded-xl cursor-pointer flex flex-col justify-between gap-2 transition relative overflow-hidden ${
+                  paymentMethod === 'Razorpay'
+                    ? 'bg-blue-950/20 border-blue-500/80 text-slate-200 ring-1 ring-blue-500/50 shadow-lg shadow-blue-950/40'
                     : 'bg-slate-900/30 border-slate-800 hover:border-slate-700 text-slate-400'
                 }`}
               >
-                <input type="radio" checked={paymentMethod === 'Stripe'} readOnly className="text-violet-600 focus:ring-0" />
+                <div className="flex items-start justify-between w-full">
+                  <div className="flex items-center gap-2">
+                    <input type="radio" checked={paymentMethod === 'Razorpay'} readOnly className="text-blue-600 focus:ring-0" />
+                    <span className="font-bold text-sm text-slate-100">UPI / Razorpay</span>
+                  </div>
+                  <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                    Instant
+                  </span>
+                </div>
                 <div>
-                  <span className="font-bold text-sm block text-slate-200">Stripe Checkout</span>
-                  <span className="text-[10px] text-slate-500 block">Credit / Debit Cards</span>
+                  <span className="text-[10px] text-slate-400 block">GPay, PhonePe, Paytm, QR</span>
+                  <span className="text-[9px] text-amber-400/90 font-medium block mt-1">🧪 Test Mode (No Charge)</span>
                 </div>
               </label>
 
+              {/* Option 2: Stripe */}
               <label
-                onClick={() => setPaymentMethod('COD')}
-                className={`flex-1 p-4 border rounded-xl cursor-pointer flex items-center gap-3 transition ${
-                  paymentMethod === 'COD'
-                    ? 'bg-violet-950/10 border-violet-500/50 text-slate-200'
+                onClick={() => setPaymentMethod('Stripe')}
+                className={`p-4 border rounded-xl cursor-pointer flex flex-col justify-between gap-2 transition ${
+                  paymentMethod === 'Stripe'
+                    ? 'bg-violet-950/20 border-violet-500/80 text-slate-200 ring-1 ring-violet-500/50 shadow-lg shadow-violet-950/40'
                     : 'bg-slate-900/30 border-slate-800 hover:border-slate-700 text-slate-400'
                 }`}
               >
-                <input type="radio" checked={paymentMethod === 'COD'} readOnly className="text-violet-600 focus:ring-0" />
+                <div className="flex items-center gap-2">
+                  <input type="radio" checked={paymentMethod === 'Stripe'} readOnly className="text-violet-600 focus:ring-0" />
+                  <span className="font-bold text-sm text-slate-200">Stripe Cards</span>
+                </div>
                 <div>
-                  <span className="font-bold text-sm block text-slate-200">Cash on Delivery (COD)</span>
-                  <span className="text-[10px] text-slate-500 block">Pay upon delivery</span>
+                  <span className="text-[10px] text-slate-400 block">Credit & Debit Cards</span>
+                  <span className="text-[9px] text-slate-500 block mt-1">Global Gateway</span>
+                </div>
+              </label>
+
+              {/* Option 3: COD */}
+              <label
+                onClick={() => setPaymentMethod('COD')}
+                className={`p-4 border rounded-xl cursor-pointer flex flex-col justify-between gap-2 transition ${
+                  paymentMethod === 'COD'
+                    ? 'bg-slate-800/60 border-slate-600 text-slate-200 ring-1 ring-slate-500/50'
+                    : 'bg-slate-900/30 border-slate-800 hover:border-slate-700 text-slate-400'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <input type="radio" checked={paymentMethod === 'COD'} readOnly className="text-violet-600 focus:ring-0" />
+                  <span className="font-bold text-sm text-slate-200">Cash on Delivery</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block">Pay upon doorstep delivery</span>
+                  <span className="text-[9px] text-slate-500 block mt-1">Cash / Delivery Agent</span>
                 </div>
               </label>
             </div>
+
+            {/* UPI & Razorpay Info Box */}
+            {paymentMethod === 'Razorpay' && (
+              <div className="p-5 bg-gradient-to-br from-[#0c2340]/40 to-slate-900/60 border border-blue-900/40 rounded-xl space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center text-white font-extrabold text-xs">
+                      R
+                    </div>
+                    <span className="text-xs font-bold text-blue-200 uppercase tracking-wider">
+                      Razorpay UPI Checkout (Test Mode)
+                    </span>
+                  </div>
+                  <span className="text-[11px] bg-blue-500/20 text-blue-300 border border-blue-400/30 px-2 py-0.5 rounded-full font-bold font-mono">
+                    ≈ ₹{Number((total * 83).toFixed(2))}
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  When you click <strong>Place Order</strong>, the official <strong>Razorpay payment interface</strong> will open. You can test paying via <strong>UPI QR scanner</strong>, <strong>Google Pay</strong>, <strong>PhonePe</strong>, or test UPI ID (<code className="text-emerald-400 font-mono">success@razorpay</code>).
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-slate-300 font-medium">⚡ Google Pay</span>
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-slate-300 font-medium">🟣 PhonePe</span>
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-slate-300 font-medium">🔷 Paytm</span>
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-slate-300 font-medium">📷 Instant UPI QR</span>
+                </div>
+
+                <div className="flex items-center gap-2 text-[11px] text-amber-300 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
+                  <ShieldCheck size={15} className="text-amber-400 flex-shrink-0" />
+                  <span>
+                    <strong>Test Sandbox Guarantee:</strong> All payment steps are completed and order is placed, but <u>NO real money is transferred</u>.
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Custom Payment Credentials Fields (Visual Sandbox simulation) */}
             {paymentMethod === 'Stripe' && (
@@ -418,6 +583,26 @@ function Checkout() {
         </div>
 
       </div>
+
+      {/* Razorpay UPI Modal Interface */}
+      {razorpayModalOpen && razorpayOrderData && (
+        <RazorpayModal
+          isOpen={razorpayModalOpen}
+          onClose={() => {
+            setRazorpayModalOpen(false);
+            setIsSubmitting(false);
+            toast('Payment window dismissed. You can retry anytime.', { icon: 'ℹ️' });
+          }}
+          onSuccess={(paymentResponse) => {
+            handleConfirmRazorpayPayment(razorpayOrderData.orderId, paymentResponse);
+          }}
+          amountInUSD={razorpayOrderData.amountInUSD}
+          amountInINR={razorpayOrderData.amountInINR}
+          orderId={razorpayOrderData.orderId}
+          customerDetails={razorpayOrderData.customerDetails}
+          isMock={razorpayOrderData.isMock}
+        />
+      )}
     </MainLayout>
   );
 }
